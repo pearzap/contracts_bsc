@@ -58,7 +58,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         IBEP20 lpToken;           // Address of LP token contract.
         uint256 allocPoint;       // How many allocation points assigned to this pool. PEARs to distribute per block.
         uint256 lastRewardBlock;  // Last block number that PEARs distribution occurs.
-        uint256 accPearPerShare;   // Accumulated PEARs per share, times 1e12. See below.
+        uint256 accPearPerShare;   // Accumulated PEARs per share, times 1e18. See below.
         uint16 depositFeeBP;      // Deposit fee in basis points
         uint256 harvestInterval;  // Harvest interval in seconds
         uint256 harvestFeeInterval; // Harvest fee minimum interval in seconds
@@ -79,8 +79,6 @@ contract MasterChef is Ownable, ReentrancyGuard {
     uint256 public pearPerBlock;
     // Maximum emission rate : pearPerBlock can't be more than 50 per block
     uint256 public constant MAX_EMISSION_RATE = 50000000000000000000;
-    // Bonus muliplier for early pear makers.
-    uint256 public constant BONUS_MULTIPLIER = 1;
     // Max harvest interval: 14 days.
     uint256 public constant MAXIMUM_HARVEST_INTERVAL = 14 days;
     // Max harvest fee interval: 10 days.
@@ -96,8 +94,8 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // Charity fee is a part of deposit fee (in basis point)
     uint16 public charityFeeBP;
     // Locker interface
-    ILocker pearLocker;
-    // Locker adresse
+    ILocker public pearLocker;
+    // Locker address
     address public pearLockerAddress;
     // Locker rate (in basis point) if = 0 locker desactivated
     uint16 public lockerRate;
@@ -137,7 +135,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
     event ReferralRateUpdated(address indexed user, uint256 previousAmount, uint256 newAmount);
     event LotteryAddressUpdated(address indexed user, address indexed newAddress);
     event LotteryMintRateUpdated(address indexed user, uint256 previousAmount, uint16 newAmount);
-    event ExcludedFromLocker(address indexed exludedAdresse, bool indexed excludedStatut);
+    event ExcludedFromLocker(address indexed exludedAddress, bool indexed excludedStatus);
 
     constructor(
         PearToken _pear,
@@ -174,7 +172,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
     // Add a new lp to the pool. Can only be called by the owner.
     function add(uint256 _allocPoint, IBEP20 _lpToken, uint16 _depositFeeBP, uint256 _harvestInterval, uint256 _harvestFeeInterval, uint256 _harvestFeeBP, bool _withUpdate) public onlyOwner nonDuplicated(_lpToken) {
         // test if the lptoken address is a token contract
-        require(_lpToken.balanceOf(address(_lpToken)) >=0, "add: try to add non token contracdt");
+        require(_lpToken.balanceOf(address(_lpToken)) >=0, "add: try to add non token contract");
         // deposit fee can't excess more than 10%
         require(_depositFeeBP <= MAXIMUM_DEPOSIT_FEE, "add: invalid deposit fee basis points");
         // harvest fee can't excess more than 10%
@@ -188,7 +186,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
         poolExistence[_lpToken] = true;
         poolInfo.push(PoolInfo({
-            lpToken: _lpToken,
+            lpToken: _lpToken,  
             allocPoint: _allocPoint,
             lastRewardBlock: lastRewardBlock,
             accPearPerShare: 0,
@@ -220,7 +218,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
 
     // Return reward multiplier over the given _from to _to block.
     function getMultiplier(uint256 _from, uint256 _to) public pure returns (uint256) {
-        return _to.sub(_from).mul(BONUS_MULTIPLIER);
+        return _to.sub(_from);
     }
 
     // View function to see pending PEARs on frontend.
@@ -232,9 +230,9 @@ contract MasterChef is Ownable, ReentrancyGuard {
         if (block.number > pool.lastRewardBlock && lpSupply != 0  && totalAllocPoint > 0) {
             uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
             uint256 pearReward = multiplier.mul(pearPerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-            accPearPerShare = accPearPerShare.add(pearReward.mul(1e12).div(lpSupply));
+            accPearPerShare = accPearPerShare.add(pearReward.mul(1e18).div(lpSupply));
         }
-        uint256 pending = user.amount.mul(accPearPerShare).div(1e12).sub(user.rewardDebt);
+        uint256 pending = user.amount.mul(accPearPerShare).div(1e18).sub(user.rewardDebt);
         return pending.add(user.rewardLockedUp);
     }
 
@@ -279,7 +277,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
             pear.mint(lotteryAddress, pearReward.mul(lotteryMintRate).div(10000));
         }        
         pear.mint(address(this), pearReward);
-        pool.accPearPerShare = pool.accPearPerShare.add(pearReward.mul(1e12).div(lpSupply));
+        pool.accPearPerShare = pool.accPearPerShare.add(pearReward.mul(1e18).div(lpSupply));
         pool.lastRewardBlock = block.number;
     }
 
@@ -296,7 +294,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
 
             // Handle any token with transfer tax
             uint256 balanceBefore = pool.lpToken.balanceOf(address(this));
-            pool.lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
+            pool.lpToken.safeTransferFrom(msg.sender, address(this), _amount);
             _amount = pool.lpToken.balanceOf(address(this)).sub(balanceBefore);
 
             if (pool.depositFeeBP > 0) {
@@ -315,7 +313,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
                 user.amount = user.amount.add(_amount);
             }
         }
-        user.rewardDebt = user.amount.mul(pool.accPearPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accPearPerShare).div(1e18);
         emit Deposit(msg.sender, _pid, _amount);
     }
 
@@ -328,9 +326,9 @@ contract MasterChef is Ownable, ReentrancyGuard {
         payOrLockupPendingPear(_pid);
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
-            pool.lpToken.safeTransfer(address(msg.sender), _amount);
+            pool.lpToken.safeTransfer(msg.sender, _amount);
         }
-        user.rewardDebt = user.amount.mul(pool.accPearPerShare).div(1e12);
+        user.rewardDebt = user.amount.mul(pool.accPearPerShare).div(1e18);
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
@@ -344,7 +342,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         user.rewardLockedUp = 0;
         user.nextHarvestUntil = 0;
         user.noHarvestFeeAfter = 0;
-        pool.lpToken.safeTransfer(address(msg.sender), amount);
+        pool.lpToken.safeTransfer(msg.sender, amount);
         emit EmergencyWithdraw(msg.sender, _pid, amount);
     }
 
@@ -363,7 +361,7 @@ contract MasterChef is Ownable, ReentrancyGuard {
         }        
 
         // pending reward for user
-        uint256 pending = user.amount.mul(pool.accPearPerShare).div(1e12).sub(user.rewardDebt);
+        uint256 pending = user.amount.mul(pool.accPearPerShare).div(1e18).sub(user.rewardDebt);
 
         if (canHarvest(_pid, msg.sender)) {
             // if user harvest before the interval, user get X% less of pending reward               
