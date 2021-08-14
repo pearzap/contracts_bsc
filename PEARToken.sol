@@ -31,10 +31,6 @@ contract PearToken is BEP20 {
     
     // The operator can only update the transfer burn tax rate & update maxTransferAmountRate & add address to antiWhale and transfer tax whitelist & change operator adresse
     address private _operator;
-    // The super operator can only update the owner adresse : This acces is protected by a 15 days timelock : Super operator address can't be change in anyway
-    address private _superOperator;
-
-    
 
     // Events
     event OperatorTransferred(address indexed previousOperator, address indexed newOperator);
@@ -72,7 +68,6 @@ contract PearToken is BEP20 {
         emit OperatorTransferred(address(0), _operator);
 
         _excludedFromAntiWhale[msg.sender] = true;
-        _excludedFromAntiWhale[address(0)] = true;
         _excludedFromAntiWhale[address(this)] = true;
         _excludedFromAntiWhale[BURN_ADDRESS] = true;
     }
@@ -112,7 +107,14 @@ contract PearToken is BEP20 {
      * @dev Returns the max transfer amount.
      */
     function maxTransferAmount() public view returns (uint256) {
-        return totalSupply().mul(maxTransferAmountRate).div(10000);
+        uint256 maxTxAmount;
+        maxTxAmount = totalSupply().mul(maxTransferAmountRate).div(10000);
+        // if antiwhale maxTransferAmountRate is set too low, a minimum of 5000 PEAR is applied
+        if (maxTxAmount < 5000000000000000000000) {
+            maxTxAmount = 5000000000000000000000;
+        }
+        return maxTxAmount;
+        
     }
 
     /**
